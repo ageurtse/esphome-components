@@ -251,7 +251,6 @@ void AXS15231Display::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, ui
 }
 
 void AXS15231Display::display_() {
-  // check if something was displayed
   if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
     return;
   }
@@ -260,29 +259,21 @@ void AXS15231Display::display_() {
   size_t const w = this->x_high_ - this->x_low_ + 1;
   size_t const h = this->y_high_ - this->y_low_ + 1;
   size_t const x_pad = this->get_width_internal() - w - this->x_low_;
-  
-  ESP_LOGV(TAG,
-           "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
-           "height:%zu, size:%d)",
-           this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, x_pad);
-  auto now = millis();
+  this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
 
   this->enable();
-  
-    if (this->x_low_ == 0 && this->y_low_ == 0 && x_pad == 0) {
-      this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, this->buffer_, w * h * 2, 4);
-    } else {
-      this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, nullptr, 0, 4);
-      size_t stride = this->x_low_ + w + x_pad;
-      for (int y = 0; y != h; y++) {
-        size_t offset = ((y + this->y_low_) * stride + this->x_low_);
-        this->write_cmd_addr_data(0, 0, 0, 0, this->buffer_ + offset * 2, w * 2, 4);
-      }
+
+  if (this->x_low_ == 0 && this->y_low_ == 0 && x_pad == 0) {
+    this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, this->buffer_, w * h * 2, 4);
+  } else {
+    this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, nullptr, 0, 4);
+    size_t stride = this->x_low_ + w + x_pad;
+    for (int y = 0; y != h; y++) {
+      size_t offset = ((y + this->y_low_) * stride + this->x_low_);
+      this->write_cmd_addr_data(0, 0, 0, 0, this->buffer_ + offset * 2, w * 2, 4);
     }
+  }
 
-
-
-  
   this->disable();
 
   this->invalidate_();
