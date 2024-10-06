@@ -21,8 +21,8 @@ namespace {
 
   const static lcd_cmd_t AXS_QSPI_INIT_NEW[] = {
     {AXS_LCD_DISPOFF, {0x00}, 0x40},
-    {AXS_LCD_SLPIN,   {0x00}, 0x20},
-    {AXS_LCD_SLPOUT,  {0x00}, 0x80},
+    {AXS_LCD_SLPIN,   {0x00}, 0x10},
+    {AXS_LCD_SLPOUT,  {0x00}, 0x20},
     {AXS_LCD_DISPON,  {0x00}, 0x00},
   };
 
