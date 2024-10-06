@@ -248,6 +248,10 @@ void AXS15231Display::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, ui
   put16_be(buf, y1);
   put16_be(buf + 2, y2);
   this->write_command_(AXS_LCD_RASET, buf, sizeof(buf));
+
+  ESP_LOGV(TAG,
+       "Set addr window(x1:%d, y1:%d, x2:%d, y2:%d)",
+       x1, y1, x2, y2);
 }
 
 void AXS15231Display::display_() {
