@@ -265,8 +265,7 @@ void AXS15231Display::display_() {
   size_t const x_pad = this->get_width_internal() - w - this->x_low_;
 
   ESP_LOGV(TAG,
-         "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
-         "height:%zu, x_pad=%d)",
+         "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, height:%zu, x_pad=%d)",
          this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, x_pad);
   
   
