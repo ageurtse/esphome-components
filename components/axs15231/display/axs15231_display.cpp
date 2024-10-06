@@ -34,11 +34,10 @@ namespace {
 }  // anonymous namespace
 
 void AXS15231Display::update() {
-  if (this->prossing_update_) {
+ if (this->prossing_update_) {
     this->need_update_ = true;
     return;
   }
-
   this->prossing_update_ = true;
   do {
     this->need_update_ = false;
@@ -48,6 +47,87 @@ void AXS15231Display::update() {
   this->display_();
 }
 
+void ILI9XXXDisplay::display_() {
+  // check if something was displayed
+  if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
+    return;
+  }
+
+  // we will only update the changed rows to the display
+  size_t const w = this->x_high_ - this->x_low_ + 1;
+  size_t const h = this->y_high_ - this->y_low_ + 1;
+
+  size_t mhz = this->data_rate_ / 1000000;
+  // estimate time for a single write
+  size_t sw_time = this->width_ * h * 16 / mhz + this->width_ * h * 2 / SPI_MAX_BLOCK_SIZE * SPI_SETUP_US * 2;
+  // estimate time for multiple writes
+  size_t mw_time = (w * h * 16) / mhz + w * h * 2 / ILI9XXX_TRANSFER_BUFFER_SIZE * SPI_SETUP_US;
+  ESP_LOGV(TAG,
+           "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
+           "height:%zu, mode=%d, 18bit=%d, sw_time=%zuus, mw_time=%zuus)",
+           this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
+           this->is_18bitdisplay_, sw_time, mw_time);
+  auto now = millis();
+  if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
+    // 16 bit mode maps directly to display format
+    ESP_LOGV(TAG, "Doing single write of %zu bytes", this->width_ * h * 2);
+    set_addr_window_(0, this->y_low_, this->width_ - 1, this->y_high_);
+    this->write_array(this->buffer_ + this->y_low_ * this->width_ * 2, h * this->width_ * 2);
+  } else {
+    ESP_LOGV(TAG, "Doing multiple write");
+    uint8_t transfer_buffer[ILI9XXX_TRANSFER_BUFFER_SIZE];
+    size_t rem = h * w;  // remaining number of pixels to write
+    set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
+    size_t idx = 0;    // index into transfer_buffer
+    size_t pixel = 0;  // pixel number offset
+    size_t pos = this->y_low_ * this->width_ + this->x_low_;
+    while (rem-- != 0) {
+      uint16_t color_val;
+      switch (this->buffer_color_mode_) {
+        case BITS_8:
+          color_val = display::ColorUtil::color_to_565(display::ColorUtil::rgb332_to_color(this->buffer_[pos++]));
+          break;
+        case BITS_8_INDEXED:
+          color_val = display::ColorUtil::color_to_565(
+              display::ColorUtil::index8_to_color_palette888(this->buffer_[pos++], this->palette_));
+          break;
+        default:  // case BITS_16:
+          color_val = (this->buffer_[pos * 2] << 8) + this->buffer_[pos * 2 + 1];
+          pos++;
+          break;
+      }
+      if (this->is_18bitdisplay_) {
+        transfer_buffer[idx++] = (uint8_t) ((color_val & 0xF800) >> 8);  // Blue
+        transfer_buffer[idx++] = (uint8_t) ((color_val & 0x7E0) >> 3);   // Green
+        transfer_buffer[idx++] = (uint8_t) (color_val << 3);             // Red
+      } else {
+        put16_be(transfer_buffer + idx, color_val);
+        idx += 2;
+      }
+      if (idx == sizeof(transfer_buffer)) {
+        this->write_array(transfer_buffer, idx);
+        idx = 0;
+        App.feed_wdt();
+      }
+      // end of line? Skip to the next.
+      if (++pixel == w) {
+        pixel = 0;
+        pos += this->width_ - w;
+      }
+    }
+    // flush any balance.
+    if (idx != 0) {
+      this->write_array(transfer_buffer, idx);
+    }
+  }
+  this->end_data_();
+  ESP_LOGV(TAG, "Data write took %dms", (unsigned) (millis() - now));
+  // invalidate watermarks
+  this->x_low_ = this->width_;
+  this->y_low_ = this->height_;
+  this->x_high_ = 0;
+  this->y_high_ = 0;
+}
 float AXS15231Display::get_setup_priority() const {
   return setup_priority::HARDWARE;
 }
@@ -250,6 +330,7 @@ void AXS15231Display::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, ui
 }
 
 void AXS15231Display::display_() {
+  // check if something was displayed
   if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
     return;
   }
@@ -257,26 +338,79 @@ void AXS15231Display::display_() {
   // we will only update the changed rows to the display
   size_t const w = this->x_high_ - this->x_low_ + 1;
   size_t const h = this->y_high_ - this->y_low_ + 1;
-  size_t const x_pad = this->get_width_internal() - w - this->x_low_;
-  this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
 
-  this->enable();
-
-  if (this->x_low_ == 0 && this->y_low_ == 0 && x_pad == 0) {
-    this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, this->buffer_, w * h * 2, 4);
+  size_t mhz = this->data_rate_ / 1000000;
+  // estimate time for a single write
+  size_t sw_time = this->width_ * h * 16 / mhz + this->width_ * h * 2 / SPI_MAX_BLOCK_SIZE * SPI_SETUP_US * 2;
+  // estimate time for multiple writes
+  size_t mw_time = (w * h * 16) / mhz + w * h * 2 / ILI9XXX_TRANSFER_BUFFER_SIZE * SPI_SETUP_US;
+  ESP_LOGV(TAG,
+           "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
+           "height:%zu, mode=%d, 18bit=%d, sw_time=%zuus, mw_time=%zuus)",
+           this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
+           this->is_18bitdisplay_, sw_time, mw_time);
+  auto now = millis();
+  if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
+    // 16 bit mode maps directly to display format
+    ESP_LOGV(TAG, "Doing single write of %zu bytes", this->width_ * h * 2);
+    set_addr_window_(0, this->y_low_, this->width_ - 1, this->y_high_);
+    this->write_array(this->buffer_ + this->y_low_ * this->width_ * 2, h * this->width_ * 2);
   } else {
-    this->write_cmd_addr_data(8, 0x32, 24, 0x2C00, nullptr, 0, 4);
-    size_t stride = this->x_low_ + w + x_pad;
-    for (int y = 0; y != h; y++) {
-      size_t offset = ((y + this->y_low_) * stride + this->x_low_);
-      this->write_cmd_addr_data(0, 0, 0, 0, this->buffer_ + offset * 2, w * 2, 4);
+    ESP_LOGV(TAG, "Doing multiple write");
+    uint8_t transfer_buffer[ILI9XXX_TRANSFER_BUFFER_SIZE];
+    size_t rem = h * w;  // remaining number of pixels to write
+    set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
+    size_t idx = 0;    // index into transfer_buffer
+    size_t pixel = 0;  // pixel number offset
+    size_t pos = this->y_low_ * this->width_ + this->x_low_;
+    while (rem-- != 0) {
+      uint16_t color_val;
+      switch (this->buffer_color_mode_) {
+        case BITS_8:
+          color_val = display::ColorUtil::color_to_565(display::ColorUtil::rgb332_to_color(this->buffer_[pos++]));
+          break;
+        case BITS_8_INDEXED:
+          color_val = display::ColorUtil::color_to_565(
+              display::ColorUtil::index8_to_color_palette888(this->buffer_[pos++], this->palette_));
+          break;
+        default:  // case BITS_16:
+          color_val = (this->buffer_[pos * 2] << 8) + this->buffer_[pos * 2 + 1];
+          pos++;
+          break;
+      }
+      if (this->is_18bitdisplay_) {
+        transfer_buffer[idx++] = (uint8_t) ((color_val & 0xF800) >> 8);  // Blue
+        transfer_buffer[idx++] = (uint8_t) ((color_val & 0x7E0) >> 3);   // Green
+        transfer_buffer[idx++] = (uint8_t) (color_val << 3);             // Red
+      } else {
+        put16_be(transfer_buffer + idx, color_val);
+        idx += 2;
+      }
+      if (idx == sizeof(transfer_buffer)) {
+        this->write_array(transfer_buffer, idx);
+        idx = 0;
+        App.feed_wdt();
+      }
+      // end of line? Skip to the next.
+      if (++pixel == w) {
+        pixel = 0;
+        pos += this->width_ - w;
+      }
+    }
+    // flush any balance.
+    if (idx != 0) {
+      this->write_array(transfer_buffer, idx);
     }
   }
-
-  this->disable();
-
-  this->invalidate_();
+  this->end_data_();
+  ESP_LOGV(TAG, "Data write took %dms", (unsigned) (millis() - now));
+  // invalidate watermarks
+  this->x_low_ = this->width_;
+  this->y_low_ = this->height_;
+  this->x_high_ = 0;
+  this->y_high_ = 0;
 }
+
 
 void AXS15231Display::invalidate_() {
   // invalidate watermarks
@@ -287,30 +421,37 @@ void AXS15231Display::invalidate_() {
 }
 
 void AXS15231Display::draw_absolute_pixel_internal(int x, int y, Color color) {
-  if (x < 0 || x >= this->get_width_internal() || y < 0 || y >= this->get_height_internal()) {
-    ESP_LOGW(TAG, "tring to draw invalid pixel: x(0 <= %d < %d) && y(0 <= %d < %d)", x, this->get_width_internal(), y,
-               this->get_height_internal());
+  if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
     return;
   }
-
+  if (!this->check_buffer_())
+    return;
   uint32_t pos = (y * width_) + x;
   uint16_t new_color;
   bool updated = false;
-
-  pos = pos * 2;
-  new_color = display::ColorUtil::color_to_565(color, display::ColorOrder::COLOR_ORDER_RGB);
-  if (this->buffer_[pos] != (uint8_t) (new_color >> 8)) {
-    this->buffer_[pos] = (uint8_t) (new_color >> 8);
-    updated = true;
+  switch (this->buffer_color_mode_) {
+    case BITS_8_INDEXED:
+      new_color = display::ColorUtil::color_to_index8_palette888(color, this->palette_);
+      break;
+    case BITS_16:
+      pos = pos * 2;
+      new_color = display::ColorUtil::color_to_565(color, display::ColorOrder::COLOR_ORDER_RGB);
+      if (this->buffer_[pos] != (uint8_t) (new_color >> 8)) {
+        this->buffer_[pos] = (uint8_t) (new_color >> 8);
+        updated = true;
+      }
+      pos = pos + 1;
+      new_color = new_color & 0xFF;
+      break;
+    default:
+      new_color = display::ColorUtil::color_to_332(color, display::ColorOrder::COLOR_ORDER_RGB);
+      break;
   }
-  pos = pos + 1;
-  new_color = new_color & 0xFF;
 
   if (this->buffer_[pos] != new_color) {
     this->buffer_[pos] = new_color;
     updated = true;
   }
-
   if (updated) {
     // low and high watermark may speed up drawing from buffer
     if (x < this->x_low_)
@@ -323,6 +464,21 @@ void AXS15231Display::draw_absolute_pixel_internal(int x, int y, Color color) {
       this->y_high_ = y;
   }
 }
+
+void ILI9XXXDisplay::update() {
+  if (this->prossing_update_) {
+    this->need_update_ = true;
+    return;
+  }
+  this->prossing_update_ = true;
+  do {
+    this->need_update_ = false;
+    this->do_update_();
+  } while (this->need_update_);
+  this->prossing_update_ = false;
+  this->display_();
+}
+
 
 #endif
 }  // namespace axs15231
