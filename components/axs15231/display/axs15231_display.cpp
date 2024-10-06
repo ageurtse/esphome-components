@@ -316,17 +316,22 @@ void AXS15231Display::write_command_(uint8_t cmd, uint8_t data) { this->write_co
 void AXS15231Display::write_command_(uint8_t cmd) { this->write_command_(cmd, &cmd, 0); }
 
 void AXS15231Display::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
-  uint8_t buf[4];
   x1 += this->offset_x_;
   x2 += this->offset_x_;
   y1 += this->offset_y_;
   y2 += this->offset_y_;
-  put16_be(buf, x1);
-  put16_be(buf + 2, x2);
-  this->write_command_(AXS_LCD_CASET, buf, sizeof(buf));
-  put16_be(buf, y1);
-  put16_be(buf + 2, y2);
-  this->write_command_(AXS_LCD_RASET, buf, sizeof(buf));
+  this->command(ILI9XXX_CASET);
+  this->data(x1 >> 8);
+  this->data(x1 & 0xFF);
+  this->data(x2 >> 8);
+  this->data(x2 & 0xFF);
+  this->command(ILI9XXX_PASET);  // Page address set
+  this->data(y1 >> 8);
+  this->data(y1 & 0xFF);
+  this->data(y2 >> 8);
+  this->data(y2 & 0xFF);
+  this->command(ILI9XXX_RAMWR);  // Write to RAM
+  this->start_data_();
 }
 
 void AXS15231Display::display_() {
