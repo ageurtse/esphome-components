@@ -190,16 +190,15 @@ void AXS15231Display::setup_pins_() {
 void AXS15231Display::set_madctl_() {
 // custom x/y transform and color order
   uint8_t mad = MADCTL_RGB;
-  // TODO(buglloc): MADCTL_MV is broken
-  // if (this->swap_xy_)
-  //   mad |= MADCTL_MV;
+  if (this->swap_xy_)
+    mad |= MADCTL_MV;
   if (this->mirror_x_)
     mad |= MADCTL_MX;
   if (this->mirror_y_)
     mad |= MADCTL_MY;
-
-  this->write_command_(AXS_LCD_MADCTL, &mad, 1);
-  ESP_LOGD(TAG, "wrote MADCTL 0x%02X", mad);
+  this->command(ILI9XXX_MADCTL);
+  this->data(mad);
+  esph_log_d(TAG, "Wrote MADCTL 0x%02X", mad);
 }
 
 void AXS15231Display::init_lcd_() {
