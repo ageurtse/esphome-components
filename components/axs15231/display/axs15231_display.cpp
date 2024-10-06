@@ -266,8 +266,6 @@ void AXS15231Display::display_() {
          this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, x_pad);
   
   
-  
-  
   this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
 
   this->enable();
