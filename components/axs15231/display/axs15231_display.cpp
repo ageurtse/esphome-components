@@ -248,10 +248,6 @@ void AXS15231Display::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, ui
   put16_be(buf, y1);
   put16_be(buf + 2, y2);
   this->write_command_(AXS_LCD_RASET, buf, sizeof(buf));
-
-  ESP_LOGI(TAG,
-       "Set addr window(x1:%d, y1:%d, x2:%d, y2:%d)",
-       x1, y1, x2, y2);
 }
 
 void AXS15231Display::display_() {
@@ -263,12 +259,6 @@ void AXS15231Display::display_() {
   size_t const w = this->x_high_ - this->x_low_ + 1;
   size_t const h = this->y_high_ - this->y_low_ + 1;
   size_t const x_pad = this->get_width_internal() - w - this->x_low_;
-
-  ESP_LOGI(TAG,
-         "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, height:%zu, x_pad=%d)",
-         this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, x_pad);
-  
-  
   this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
 
   this->enable();
@@ -299,7 +289,7 @@ void AXS15231Display::invalidate_() {
 
 void AXS15231Display::draw_absolute_pixel_internal(int x, int y, Color color) {
   if (x < 0 || x >= this->get_width_internal() || y < 0 || y >= this->get_height_internal()) {
-    ESP_LOGI(TAG, "tring to draw invalid pixel: x(0 <= %d < %d) && y(0 <= %d < %d)", x, this->get_width_internal(), y,
+    ESP_LOGW(TAG, "tring to draw invalid pixel: x(0 <= %d < %d) && y(0 <= %d < %d)", x, this->get_width_internal(), y,
                this->get_height_internal());
     return;
   }
