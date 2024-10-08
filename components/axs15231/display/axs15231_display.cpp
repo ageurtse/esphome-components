@@ -256,10 +256,11 @@ void AXS15231Display::display_() {
   }
 
   // we will only update the changed rows to the display
-  size_t const w = this->x_high_ - this->x_low_ + 1;
-  size_t const h = this->y_high_ - this->y_low_ + 1;
+  size_t const w = this->width_; //this->x_high_ - this->x_low_ + 1;
+  size_t const h = this->height_; //this->y_high_ - this->y_low_ + 1;
   size_t const x_pad = this->get_width_internal() - w - this->x_low_;
-  this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
+  // ########### force the window to full screen
+  this->set_addr_window_(1, 1, this->width_, this->height_);
 
   this->enable();
 
